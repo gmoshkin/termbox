@@ -128,6 +128,12 @@ extern "C" {
 #define TB_UNDERLINE 0x0200
 #define TB_REVERSE   0x0400
 
+struct tb_tc {
+	uint8_t r;
+	uint8_t g;
+	uint8_t b;
+};
+
 /* A cell, single conceptual entity on the terminal screen. The terminal screen
  * is basically a 2d array of cells. It has the following fields:
  *  - 'ch' is a unicode character
@@ -135,9 +141,18 @@ extern "C" {
  *  - 'bg' background color and attributes
  */
 struct tb_cell {
-	uint32_t ch;
-	uint16_t fg;
-	uint16_t bg;
+	union {
+		struct {
+			uint32_t ch;
+			uint16_t fg;
+			uint16_t bg;
+		} normal;
+		struct {
+			uint16_t ch;
+			struct tb_tc fg;
+			struct tb_tc bg;
+		} tc;
+	};
 };
 
 #define TB_EVENT_KEY    1
@@ -212,6 +227,8 @@ SO_IMPORT void tb_set_cursor(int cx, int cy);
  */
 SO_IMPORT void tb_put_cell(int x, int y, const struct tb_cell *cell);
 SO_IMPORT void tb_change_cell(int x, int y, uint32_t ch, uint16_t fg, uint16_t bg);
+SO_IMPORT void tb_change_cell_tc(int x, int y, uint16_t ch, struct tb_tc fg, struct tb_tc bg);
+SO_IMPORT void tb_change_cell_rgb(int x, int y, uint16_t ch, uint8_t fg_r, uint8_t fg_g, uint8_t fg_b, uint8_t bg_r, uint8_t bg_g, uint8_t bg_b);
 
 /* Copies the buffer from 'cells' at the specified position, assuming the
  * buffer is a two-dimensional array of size ('w' x 'h'), represented as a
@@ -258,6 +275,7 @@ SO_IMPORT int tb_select_input_mode(int mode);
 #define TB_OUTPUT_256       2
 #define TB_OUTPUT_216       3
 #define TB_OUTPUT_GRAYSCALE 4
+#define TB_OUTPUT_TRUECOLOR 5
 
 /* Sets the termbox output mode. Termbox has three output options:
  * 1. TB_OUTPUT_NORMAL     => [1..8]

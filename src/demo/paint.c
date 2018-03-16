@@ -79,8 +79,8 @@ void colorAttrFunc(int i, uint32_t *r, uint16_t *fg, uint16_t *bg) {
 void updateAndRedrawAll(int mx, int my) {
 	tb_clear();
 	if (mx != -1 && my != -1) {
-		backbuf[bbw*my+mx].ch = runes[curRune];
-		backbuf[bbw*my+mx].fg = colors[curCol];
+		backbuf[bbw*my+mx].normal.ch = runes[curRune];
+		backbuf[bbw*my+mx].normal.fg = colors[curCol];
 	}
 	memcpy(tb_cell_buffer(), backbuf, sizeof(struct tb_cell)*bbw*bbh);
 	int h = tb_height();

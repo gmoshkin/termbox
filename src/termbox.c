@@ -30,6 +30,50 @@ struct cellbuf {
 #define IS_CURSOR_HIDDEN(cx, cy) (cx == -1 || cy == -1)
 #define LAST_COORD_INIT -1
 
+#if 1
+
+#define SET(cell, field, val) \
+	do { \
+		if (outputmode == TB_OUTPUT_TRUECOLOR) { \
+			(cell)->tc.field = (val); \
+		} else { \
+			(cell)->normal.field = (val); \
+		} \
+	} while (0)
+#define SET_CH(cell, c) \
+	do { \
+		if (outputmode == TB_OUTPUT_TRUECOLOR) { \
+			(cell)->tc.ch = (c); \
+		} else { \
+			(cell)->normal.ch = (c); \
+		} \
+	} while (0)
+#define GET_CH(cell) (outputmode == TB_OUTPUT_TRUECOLOR ? (cell)->tc.ch : (cell)->normal.ch)
+#define CPY_CLR(to, from) \
+	do { \
+		if (outputmode == TB_OUTPUT_TRUECOLOR) { \
+			(to)->tc.fg = (from)->tc.fg; \
+			(to)->tc.bg = (from)->tc.bg; \
+		} else { \
+			(to)->normal.fg = (from)->normal.fg; \
+			(to)->normal.bg = (from)->normal.bg; \
+		} \
+	} while (0)
+#define SEND_ATTR(cell) (outputmode == TB_OUTPUT_TRUECOLOR ? send_tc_attr((cell)->tc.fg, (cell)->tc.bg) : send_attr((cell)->normal.fg, (cell)->normal.bg))
+
+#else
+
+#define SET(cell, field, val) (cell)->field = (val)
+#define SET_CH(cell, c) (cell)->ch = (c)
+#define GET_CH(cell) ((cell)->ch)
+#define SET_FG(cell, c) (cell)->fg = (c)
+#define SET_BG(cell, c) (cell)->bg = (c)
+#define CPY_CLR(to, from) \
+	do { (to)->fg = (from)->fg; (to)->bg = (from)->bg; } while (0)
+#define SEND_ATTR(cell) send_attr((cell)->fg, (cell)->bg)
+
+#endif
+
 static struct termios orig_tios;
 
 static struct cellbuf back_buffer;
@@ -65,6 +109,7 @@ static void cellbuf_free(struct cellbuf *buf);
 static void update_size(void);
 static void update_term_size(void);
 static void send_attr(uint16_t fg, uint16_t bg);
+static void send_tc_attr(struct tb_tc fg, struct tb_tc bg);
 static void send_char(int x, int y, uint32_t c);
 static void send_clear(void);
 static void sigwinch_handler(int xxx);
@@ -185,26 +230,25 @@ void tb_present(void)
 		for (x = 0; x < front_buffer.width; ) {
 			back = &CELL(&back_buffer, x, y);
 			front = &CELL(&front_buffer, x, y);
-			w = wcwidth(back->ch);
+			w = wcwidth(GET_CH(back));
 			if (w < 1) w = 1;
 			if (memcmp(back, front, sizeof(struct tb_cell)) == 0) {
 				x += w;
 				continue;
 			}
 			memcpy(front, back, sizeof(struct tb_cell));
-			send_attr(back->fg, back->bg);
+			SEND_ATTR(back);
 			if (w > 1 && x >= front_buffer.width - (w - 1)) {
 				// Not enough room for wide ch, so send spaces
 				for (i = x; i < front_buffer.width; ++i) {
 					send_char(i, y, ' ');
 				}
 			} else {
-				send_char(x, y, back->ch);
+				send_char(x, y, GET_CH(back));
 				for (i = 1; i < w; ++i) {
 					front = &CELL(&front_buffer, x + i, y);
-					front->ch = 0;
-					front->fg = back->fg;
-					front->bg = back->bg;
+					SET(front, ch, 0);
+					CPY_CLR(front, back);
 				}
 			}
 			x += w;
@@ -242,6 +286,22 @@ void tb_change_cell(int x, int y, uint32_t ch, uint16_t fg, uint16_t bg)
 {
 	struct tb_cell c = {ch, fg, bg};
 	tb_put_cell(x, y, &c);
+}
+
+void tb_change_cell_tc(int x, int y, uint16_t ch, struct tb_tc fg, struct tb_tc bg)
+{
+	if (outputmode != TB_OUTPUT_TRUECOLOR) {
+		return;
+	}
+	struct tb_cell c = { .tc = {ch, fg, bg} };
+	tb_put_cell(x, y, &c);
+}
+
+void tb_change_cell_rgb(int x, int y, uint16_t ch, uint8_t fg_r, uint8_t fg_g, uint8_t fg_b, uint8_t bg_r, uint8_t bg_g, uint8_t bg_b)
+{
+	struct tb_tc fg = {fg_r, fg_g, fg_b};
+	struct tb_tc bg = {bg_r, bg_g, bg_b};
+	tb_change_cell_tc(x, y, ch, fg, bg);
 }
 
 void tb_blit(int x, int y, int w, int h, const struct tb_cell *cells)
@@ -462,9 +522,9 @@ static void cellbuf_clear(struct cellbuf *buf)
 	int ncells = buf->width * buf->height;
 
 	for (i = 0; i < ncells; ++i) {
-		buf->cells[i].ch = ' ';
-		buf->cells[i].fg = foreground;
-		buf->cells[i].bg = background;
+		buf->cells[i].normal.ch = ' ';
+		buf->cells[i].normal.fg = foreground;
+		buf->cells[i].normal.bg = background;
 	}
 }
 
@@ -545,6 +605,36 @@ static void send_attr(uint16_t fg, uint16_t bg)
 		lastfg = fg;
 		lastbg = bg;
 	}
+}
+
+static void send_tc_attr(struct tb_tc fg, struct tb_tc bg)
+{
+	char buf[32];
+#define LAST_TC_INIT { 0xff, 0xff, 0xff }
+	static struct tb_tc lastfg = LAST_TC_INIT, lastbg = LAST_TC_INIT;
+	if (fg.r == lastfg.r && fg.g == lastfg.g && fg.b == lastfg.b &&
+		bg.r == lastbg.r && bg.g == lastbg.g && bg.b == lastbg.b) {
+		return;
+	}
+	bytebuffer_puts(&output_buffer, funcs[T_SGR0]);
+	WRITE_LITERAL("\033[");
+	WRITE_LITERAL("38;2;");
+	WRITE_INT(fg.r);
+	WRITE_LITERAL(";");
+	WRITE_INT(fg.g);
+	WRITE_LITERAL(";");
+	WRITE_INT(fg.b);
+
+	WRITE_LITERAL(";");
+
+	WRITE_LITERAL("48;2;");
+	WRITE_INT(bg.r);
+	WRITE_LITERAL(";");
+	WRITE_INT(bg.g);
+	WRITE_LITERAL(";");
+	WRITE_INT(bg.b);
+
+	WRITE_LITERAL("m");
 }
 
 static void send_char(int x, int y, uint32_t c)
