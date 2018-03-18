@@ -12,6 +12,7 @@ if PY_MAJOR_VERSION == 3:
 cdef extern from "stdint.h":
 	ctypedef unsigned int uint32_t
 	ctypedef unsigned short uint16_t
+	ctypedef unsigned char uint8_t
 	ctypedef signed int int32_t
 
 cdef extern from "../termbox.h":
@@ -29,6 +30,7 @@ cdef extern from "../termbox.h":
 	void tb_present()
 	void tb_clear()
 	void tb_change_cell(int x, int y, uint32_t ch, uint16_t fg, uint16_t bg)
+	void tb_change_cell_rgb(int x, int y, uint16_t ch, uint8_t fg_r, uint8_t fg_g, uint8_t fg_b, uint8_t bg_r, uint8_t bg_g, uint8_t bg_b)
 	int tb_width()
 	int tb_height()
 	void tb_set_cursor(int x, int y)
@@ -152,6 +154,7 @@ OUTPUT_NORMAL    = 1
 OUTPUT_256       = 2
 OUTPUT_216       = 3
 OUTPUT_GRAYSCALE = 4
+OUTPUT_TRUECOLOR = 5
 EVENT_KEY        = 1
 EVENT_RESIZE     = 2
 EVENT_MOUSE		= 3
@@ -206,6 +209,13 @@ cdef class Termbox:
 		"""Change cell in position (x;y).
 		"""
 		tb_change_cell(x, y, ch, fg, bg)
+
+	def change_cell_rgb(self, int x, int y, int ch,
+                        uint8_t fg_r, uint8_t fg_g, uint8_t fg_b,
+                        uint8_t bg_r, uint8_t bg_g, uint8_t bg_b):
+		"""Change cell in position (x;y).
+		"""
+		tb_change_cell_rgb(x, y, ch, fg_r, fg_g, fg_b, bg_r, bg_g, bg_b)
 
 	def width(self):
 		"""Returns width of the terminal screen.
